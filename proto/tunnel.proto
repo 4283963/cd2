@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tunnel;
 
-option go_package = "tunnel/proto";
+option go_package = "lighting-service/proto;tunnel";
 option java_package = "com.tunnel.proto";
 option java_multiple_files = true;
 

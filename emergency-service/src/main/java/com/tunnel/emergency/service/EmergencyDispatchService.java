@@ -2,6 +2,7 @@ package com.tunnel.emergency.service;
 
 import com.tunnel.emergency.config.EmergencyConfig;
 import com.tunnel.emergency.entity.*;
+import com.tunnel.emergency.grpc.LightingGrpcClient;
 import com.tunnel.emergency.repository.EmergencyAlertRepository;
 import com.tunnel.emergency.repository.EscapeLightRepository;
 import com.tunnel.emergency.repository.LedMarkRepository;
@@ -29,6 +30,7 @@ public class EmergencyDispatchService {
     private final LedMarkRepository ledMarkRepository;
     private final EmergencyConfig emergencyConfig;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final LightingGrpcClient lightingGrpcClient;
 
     private final Map<String, EmergencyAlert> activeEmergencies = new ConcurrentHashMap<>();
 
@@ -70,6 +72,33 @@ public class EmergencyDispatchService {
     private void triggerEmergencyResponse(String tunnelId, EmergencyType type) {
         activateEscapeLights(tunnelId, type);
         activateLedMarks(tunnelId, type);
+        notifyLightingService(tunnelId, type);
+    }
+
+    private void notifyLightingService(String tunnelId, EmergencyType type) {
+        try {
+            com.tunnel.proto.EmergencyType protoEmergencyType = convertToProtoEmergencyType(type);
+            com.tunnel.proto.LightingControlResponse response = lightingGrpcClient.setEmergencyLighting(
+                    tunnelId, protoEmergencyType, null);
+            if (response != null && response.getSuccess()) {
+                log.info("Successfully notified lighting service for tunnel {}: {} segments updated",
+                        tunnelId, response.getSegmentsCount());
+            } else {
+                log.warn("Lighting service returned failure for tunnel {}: {}",
+                        tunnelId, response != null ? response.getMessage() : "null response");
+            }
+        } catch (Exception e) {
+            log.error("Failed to notify lighting service for tunnel {}: {}", tunnelId, e.getMessage());
+        }
+    }
+
+    private com.tunnel.proto.EmergencyType convertToProtoEmergencyType(EmergencyType type) {
+        return switch (type) {
+            case ACCIDENT -> com.tunnel.proto.EmergencyType.EMERGENCY_ACCIDENT;
+            case FIRE -> com.tunnel.proto.EmergencyType.EMERGENCY_FIRE;
+            case FAULT -> com.tunnel.proto.EmergencyType.EMERGENCY_FAULT;
+            default -> com.tunnel.proto.EmergencyType.EMERGENCY_NONE;
+        };
     }
 
     @Transactional

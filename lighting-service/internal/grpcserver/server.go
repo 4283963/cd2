@@ -11,26 +11,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"lighting-service/internal/model"
+	pb "lighting-service/proto"
 )
-
-type LightingSegmentProto struct {
-	SegmentId  string
-	Brightness float64
-	Mode       int32
-	UpdatedAt  int64
-}
-
-type LightingStatusResponseProto struct {
-	Segments    []*LightingSegmentProto
-	CurrentMode int32
-	Timestamp   int64
-}
-
-type LightingControlResponseProto struct {
-	Success  bool
-	Message  string
-	Segments []*LightingSegmentProto
-}
 
 type DimmerServiceInterface interface {
 	GetSegments(tunnelID string) ([]*model.LightingSegment, bool)
@@ -51,6 +33,7 @@ type StorageInterface interface {
 }
 
 type LightingServer struct {
+	pb.UnimplementedLightingServiceServer
 	dimmer  DimmerServiceInterface
 	storage StorageInterface
 	server  *grpc.Server
@@ -71,7 +54,11 @@ func (s *LightingServer) Start(port string) error {
 
 	s.server = grpc.NewServer(
 		grpc.UnaryInterceptor(s.unaryInterceptor),
+		grpc.MaxRecvMsgSize(10*1024*1024),
+		grpc.MaxSendMsgSize(10*1024*1024),
 	)
+
+	pb.RegisterLightingServiceServer(s.server, s)
 
 	log.Printf("gRPC server started on %s", port)
 	return s.server.Serve(lis)
@@ -93,7 +80,8 @@ func (s *LightingServer) unaryInterceptor(ctx context.Context, req interface{}, 
 	return resp, err
 }
 
-func (s *LightingServer) GetLightingStatus(ctx context.Context, tunnelID string) (*LightingStatusResponseProto, error) {
+func (s *LightingServer) GetLightingStatus(ctx context.Context, req *pb.LightingStatusRequest) (*pb.LightingStatusResponse, error) {
+	tunnelID := req.GetTunnelId()
 	if tunnelID == "" {
 		return nil, status.Error(codes.InvalidArgument, "tunnel_id is required")
 	}
@@ -106,27 +94,25 @@ func (s *LightingServer) GetLightingStatus(ctx context.Context, tunnelID string)
 
 	mode, _ := s.dimmer.GetCurrentMode(tunnelID)
 
-	pbSegments := make([]*LightingSegmentProto, len(segments))
+	pbSegments := make([]*pb.LightingSegment, len(segments))
 	for i, seg := range segments {
-		pbSegments[i] = &LightingSegmentProto{
-			SegmentId:  seg.ID,
-			Brightness: seg.Brightness,
-			Mode:       int32(seg.Mode),
-			UpdatedAt:  seg.UpdatedAt.Unix(),
-		}
+		pbSegments[i] = toProtoLightingSegment(seg)
 	}
 
-	return &LightingStatusResponseProto{
+	return &pb.LightingStatusResponse{
 		Segments:    pbSegments,
-		CurrentMode: int32(mode),
+		CurrentMode: toProtoLightingMode(mode),
 		Timestamp:   time.Now().Unix(),
 	}, nil
 }
 
-func (s *LightingServer) SetEmergencyLighting(ctx context.Context, tunnelID string, emergencyType model.EmergencyType, emergencySegment string) (*LightingControlResponseProto, error) {
+func (s *LightingServer) SetEmergencyLighting(ctx context.Context, req *pb.LightingControlRequest) (*pb.LightingControlResponse, error) {
+	tunnelID := req.GetTunnelId()
 	if tunnelID == "" {
 		return nil, status.Error(codes.InvalidArgument, "tunnel_id is required")
 	}
+
+	emergencyType := fromProtoEmergencyType(req.GetEmergencyType())
 
 	s.dimmer.SetEmergencyMode(tunnelID, emergencyType)
 
@@ -149,17 +135,12 @@ func (s *LightingServer) SetEmergencyLighting(ctx context.Context, tunnelID stri
 		}
 	}
 
-	pbSegments := make([]*LightingSegmentProto, len(segments))
+	pbSegments := make([]*pb.LightingSegment, len(segments))
 	for i, seg := range segments {
-		pbSegments[i] = &LightingSegmentProto{
-			SegmentId:  seg.ID,
-			Brightness: seg.Brightness,
-			Mode:       int32(seg.Mode),
-			UpdatedAt:  seg.UpdatedAt.Unix(),
-		}
+		pbSegments[i] = toProtoLightingSegment(seg)
 	}
 
-	return &LightingControlResponseProto{
+	return &pb.LightingControlResponse{
 		Success:  true,
 		Message:  "Emergency lighting activated",
 		Segments: pbSegments,
@@ -169,5 +150,42 @@ func (s *LightingServer) SetEmergencyLighting(ctx context.Context, tunnelID stri
 func (s *LightingServer) Stop() {
 	if s.server != nil {
 		s.server.GracefulStop()
+	}
+}
+
+func toProtoLightingSegment(seg *model.LightingSegment) *pb.LightingSegment {
+	return &pb.LightingSegment{
+		SegmentId:  seg.ID,
+		Brightness: seg.Brightness,
+		Mode:       toProtoLightingMode(seg.Mode),
+		UpdatedAt:  seg.UpdatedAt.Unix(),
+	}
+}
+
+func toProtoLightingMode(mode model.LightingMode) pb.LightingMode {
+	switch mode {
+	case model.ModeDay:
+		return pb.LightingMode_MODE_DAY
+	case model.ModeNight:
+		return pb.LightingMode_MODE_NIGHT
+	case model.ModeCloudy:
+		return pb.LightingMode_MODE_CLOUDY
+	case model.ModeEmergency:
+		return pb.LightingMode_MODE_EMERGENCY
+	default:
+		return pb.LightingMode_MODE_NORMAL
+	}
+}
+
+func fromProtoEmergencyType(et pb.EmergencyType) model.EmergencyType {
+	switch et {
+	case pb.EmergencyType_EMERGENCY_ACCIDENT:
+		return model.EmergencyAccident
+	case pb.EmergencyType_EMERGENCY_FIRE:
+		return model.EmergencyFire
+	case pb.EmergencyType_EMERGENCY_FAULT:
+		return model.EmergencyFault
+	default:
+		return model.EmergencyNone
 	}
 }
