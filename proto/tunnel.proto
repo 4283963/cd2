@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package tunnel;
+
+option go_package = "tunnel/proto";
+option java_package = "com.tunnel.proto";
+option java_multiple_files = true;
+
+enum LightingMode {
+  MODE_NORMAL = 0;
+  MODE_DAY = 1;
+  MODE_NIGHT = 2;
+  MODE_CLOUDY = 3;
+  MODE_EMERGENCY = 4;
+}
+
+enum EmergencyType {
+  EMERGENCY_NONE = 0;
+  EMERGENCY_ACCIDENT = 1;
+  EMERGENCY_FIRE = 2;
+  EMERGENCY_FAULT = 3;
+}
+
+enum EscapeLightStatus {
+  ESCAPE_OFF = 0;
+  ESCAPE_ON = 1;
+  ESCAPE_BLINK = 2;
+}
+
+message LightingSegment {
+  string segment_id = 1;
+  double brightness = 2;
+  LightingMode mode = 3;
+  int64 updated_at = 4;
+}
+
+message TrafficData {
+  string tunnel_id = 1;
+  int32 vehicle_count = 2;
+  double avg_speed = 3;
+  int64 timestamp = 4;
+}
+
+message LightIntensityData {
+  string tunnel_id = 1;
+  double outside_lux = 2;
+  double inside_lux = 3;
+  int64 timestamp = 4;
+}
+
+message LightingControlRequest {
+  string tunnel_id = 1;
+  EmergencyType emergency_type = 2;
+  string emergency_segment = 3;
+  int64 timestamp = 4;
+}
+
+message LightingControlResponse {
+  bool success = 1;
+  string message = 2;
+  repeated LightingSegment segments = 3;
+}
+
+message LightingStatusRequest {
+  string tunnel_id = 1;
+}
+
+message LightingStatusResponse {
+  repeated LightingSegment segments = 1;
+  LightingMode current_mode = 2;
+  int64 timestamp = 3;
+}
+
+message EmergencyAlert {
+  string emergency_id = 1;
+  string tunnel_id = 2;
+  EmergencyType type = 3;
+  string location = 4;
+  string description = 5;
+  int64 timestamp = 6;
+  int32 severity = 7;
+}
+
+message EscapeLightControl {
+  string tunnel_id = 1;
+  string segment_id = 2;
+  EscapeLightStatus status = 3;
+  string direction = 4;
+  int64 timestamp = 5;
+}
+
+message EmergencyStatusRequest {
+  string tunnel_id = 1;
+}
+
+message EmergencyStatusResponse {
+  bool has_emergency = 1;
+  EmergencyAlert current_alert = 2;
+  repeated EscapeLightControl escape_lights = 3;
+}
+
+service LightingService {
+  rpc GetLightingStatus(LightingStatusRequest) returns (LightingStatusResponse);
+  rpc SetEmergencyLighting(LightingControlRequest) returns (LightingControlResponse);
+  rpc StreamLightingStatus(stream LightingStatusRequest) returns (stream LightingStatusResponse);
+}
+
+service EmergencyService {
+  rpc ReportEmergency(EmergencyAlert) returns (EmergencyStatusResponse);
+  rpc GetEmergencyStatus(EmergencyStatusRequest) returns (EmergencyStatusResponse);
+  rpc ClearEmergency(EmergencyStatusRequest) returns (EmergencyStatusResponse);
+}

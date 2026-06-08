@@ -1,0 +1,60 @@
+server:
+  name: lighting-service
+  grpc_port: 50051
+  http_port: 8080
+
+mqtt:
+  broker: "tcp://localhost:1883"
+  client_id: "lighting-service"
+  username: ""
+  password: ""
+  topics:
+    traffic: "tunnel/+/traffic"
+    light_intensity: "tunnel/+/light_intensity"
+    emergency: "tunnel/+/emergency"
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  cache_ttl: 300
+
+mysql:
+  host: "localhost"
+  port: 3306
+  database: "tunnel"
+  username: "root"
+  password: "root"
+  max_open_conns: 100
+  max_idle_conns: 10
+
+dimmer:
+  segments:
+    - id: "S01"
+      name: "入口段"
+      base_brightness: 100
+      length: 50
+    - id: "S02"
+      name: "过渡段1"
+      base_brightness: 80
+      length: 50
+    - id: "S03"
+      name: "过渡段2"
+      base_brightness: 60
+      length: 50
+    - id: "S04"
+      name: "中间段"
+      base_brightness: 40
+      length: 200
+    - id: "S05"
+      name: "出口段"
+      base_brightness: 80
+      length: 50
+  day_brightness_factor: 1.0
+  night_brightness_factor: 0.3
+  cloudy_brightness_factor: 0.6
+  emergency_brightness_factor: 1.2
+  traffic_density_factor: 0.1
+  min_brightness: 10
+  max_brightness: 100
