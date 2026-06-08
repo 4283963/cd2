@@ -24,6 +24,7 @@ type Client struct {
 	trafficChan  chan model.TrafficData
 	lightChan    chan model.LightIntensityData
 	emergencyChan chan model.EmergencyType
+	weatherChan  chan model.WeatherAlert
 }
 
 func NewClient(config Config) *Client {
@@ -32,6 +33,7 @@ func NewClient(config Config) *Client {
 		trafficChan:  make(chan model.TrafficData, 100),
 		lightChan:    make(chan model.LightIntensityData, 100),
 		emergencyChan: make(chan model.EmergencyType, 10),
+		weatherChan:  make(chan model.WeatherAlert, 10),
 	}
 }
 
@@ -77,6 +79,13 @@ func (c *Client) subscribeTopics() {
 	token = c.client.Subscribe(emergencyTopic, 1, c.handleEmergencyData)
 	token.Wait()
 	log.Printf("Subscribed to topic: %s", emergencyTopic)
+
+	weatherTopic := c.config.Topics["weather"]
+	if weatherTopic != "" {
+		token = c.client.Subscribe(weatherTopic, 1, c.handleWeatherData)
+		token.Wait()
+		log.Printf("Subscribed to topic: %s", weatherTopic)
+	}
 }
 
 func (c *Client) handleTrafficData(client mqtt.Client, msg mqtt.Message) {
@@ -135,6 +144,21 @@ func (c *Client) handleEmergencyData(client mqtt.Client, msg mqtt.Message) {
 	}
 }
 
+func (c *Client) handleWeatherData(client mqtt.Client, msg mqtt.Message) {
+	var alert model.WeatherAlert
+	if err := json.Unmarshal(msg.Payload(), &alert); err != nil {
+		log.Printf("Failed to parse weather data: %v", err)
+		return
+	}
+	alert.Timestamp = time.Now()
+
+	select {
+	case c.weatherChan <- alert:
+	default:
+		log.Println("Weather data channel full, dropping message")
+	}
+}
+
 func (c *Client) TrafficChan() <-chan model.TrafficData {
 	return c.trafficChan
 }
@@ -145,6 +169,10 @@ func (c *Client) LightChan() <-chan model.LightIntensityData {
 
 func (c *Client) EmergencyChan() <-chan model.EmergencyType {
 	return c.emergencyChan
+}
+
+func (c *Client) WeatherChan() <-chan model.WeatherAlert {
+	return c.weatherChan
 }
 
 func (c *Client) Publish(topic string, payload interface{}) error {
@@ -164,4 +192,5 @@ func (c *Client) Disconnect() {
 	close(c.trafficChan)
 	close(c.lightChan)
 	close(c.emergencyChan)
+	close(c.weatherChan)
 }

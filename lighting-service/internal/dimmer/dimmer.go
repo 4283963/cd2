@@ -15,6 +15,7 @@ type DimmerService struct {
 	segments       map[string][]*model.LightingSegment
 	currentMode    map[string]model.LightingMode
 	emergencyMode  map[string]bool
+	weatherCondition map[string]model.WeatherCondition
 	collector      DataCollectorInterface
 }
 
@@ -25,11 +26,12 @@ type DataCollectorInterface interface {
 
 func NewDimmerService(config *model.DimmerConfig, collector DataCollectorInterface) *DimmerService {
 	ds := &DimmerService{
-		config:        config,
-		segments:      make(map[string][]*model.LightingSegment),
-		currentMode:   make(map[string]model.LightingMode),
-		emergencyMode: make(map[string]bool),
-		collector:     collector,
+		config:           config,
+		segments:         make(map[string][]*model.LightingSegment),
+		currentMode:      make(map[string]model.LightingMode),
+		emergencyMode:    make(map[string]bool),
+		weatherCondition: make(map[string]model.WeatherCondition),
+		collector:        collector,
 	}
 	return ds
 }
@@ -54,6 +56,7 @@ func (ds *DimmerService) InitializeSegments(tunnelID string) {
 	ds.segments[tunnelID] = segments
 	ds.currentMode[tunnelID] = model.ModeNormal
 	ds.emergencyMode[tunnelID] = false
+	ds.weatherCondition[tunnelID] = model.WeatherClear
 
 	log.Printf("Initialized %d lighting segments for tunnel %s", len(segments), tunnelID)
 }
@@ -80,9 +83,16 @@ func (ds *DimmerService) CalculateBrightness(tunnelID string) ([]*model.Lighting
 	factor := ds.getModeFactor(mode)
 	trafficFactor := 1.0 + float64(avgVehicles)*ds.config.TrafficDensityFactor/100.0
 
+	weatherCondition := ds.weatherCondition[tunnelID]
+	weatherBoost := ds.getWeatherBoost(weatherCondition)
+
 	for _, seg := range segments {
 		baseBrightness := ds.getSegmentBaseBrightness(seg.ID)
 		brightness := baseBrightness * factor * trafficFactor
+
+		if ds.isEntranceSegment(seg.ID) && weatherBoost > 1.0 {
+			brightness = baseBrightness * factor * weatherBoost * trafficFactor
+		}
 
 		brightness = math.Min(brightness, ds.config.MaxBrightness)
 		brightness = math.Max(brightness, ds.config.MinBrightness)
@@ -92,7 +102,13 @@ func (ds *DimmerService) CalculateBrightness(tunnelID string) ([]*model.Lighting
 		seg.UpdatedAt = time.Now()
 	}
 
-	log.Printf("Calculated brightness for tunnel %s (mode: %s)", tunnelID, mode.String())
+	if weatherBoost > 1.0 {
+		log.Printf("Calculated brightness for tunnel %s (mode: %s, weather: %s, boost: %.1fx)",
+			tunnelID, mode.String(), weatherCondition.String(), weatherBoost)
+	} else {
+		log.Printf("Calculated brightness for tunnel %s (mode: %s)", tunnelID, mode.String())
+	}
+
 	return segments, nil
 }
 
@@ -147,6 +163,49 @@ func (ds *DimmerService) getSegmentBaseBrightness(segmentID string) float64 {
 		}
 	}
 	return ds.config.MinBrightness
+}
+
+func (ds *DimmerService) getWeatherBoost(condition model.WeatherCondition) float64 {
+	switch condition {
+	case model.WeatherLightRain, model.WeatherLightSnow:
+		return ds.config.WeatherBrightnessBoost
+	case model.WeatherHeavyRain, model.WeatherHeavySnow:
+		return ds.config.SevereWeatherBoost
+	case model.WeatherStorm, model.WeatherBlizzard:
+		return ds.config.SevereWeatherBoost * 1.2
+	default:
+		return 1.0
+	}
+}
+
+func (ds *DimmerService) isEntranceSegment(segmentID string) bool {
+	return segmentID == ds.config.EntranceSegmentID
+}
+
+func (ds *DimmerService) SetWeatherCondition(tunnelID string, condition model.WeatherCondition) {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	oldCondition := ds.weatherCondition[tunnelID]
+	ds.weatherCondition[tunnelID] = condition
+
+	if oldCondition != condition {
+		if condition.IsSevere() {
+			log.Printf("Severe weather alert for tunnel %s: %s - entrance brightness boosted",
+				tunnelID, condition.String())
+		} else if oldCondition.IsSevere() {
+			log.Printf("Weather cleared for tunnel %s: %s - entrance brightness restored",
+				tunnelID, condition.String())
+		} else {
+			log.Printf("Weather updated for tunnel %s: %s", tunnelID, condition.String())
+		}
+	}
+}
+
+func (ds *DimmerService) GetWeatherCondition(tunnelID string) model.WeatherCondition {
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+	return ds.weatherCondition[tunnelID]
 }
 
 func (ds *DimmerService) SetEmergencyMode(tunnelID string, emergencyType model.EmergencyType) {

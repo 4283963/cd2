@@ -88,6 +88,9 @@ type DimmerConfig struct {
 	TrafficDensityFactor    float64
 	MinBrightness           float64
 	MaxBrightness           float64
+	EntranceSegmentID       string
+	WeatherBrightnessBoost  float64
+	SevereWeatherBoost      float64
 }
 
 type DeviceStatus struct {
@@ -96,4 +99,72 @@ type DeviceStatus struct {
 	Status      string    `json:"status"`
 	Brightness  float64   `json:"brightness,omitempty"`
 	LastUpdate  time.Time `json:"last_update"`
+}
+
+type WeatherCondition int
+
+const (
+	WeatherClear WeatherCondition = iota
+	WeatherCloudy
+	WeatherLightRain
+	WeatherHeavyRain
+	WeatherStorm
+	WeatherLightSnow
+	WeatherHeavySnow
+	WeatherBlizzard
+)
+
+func (w WeatherCondition) String() string {
+	switch w {
+	case WeatherCloudy:
+		return "CLOUDY"
+	case WeatherLightRain:
+		return "LIGHT_RAIN"
+	case WeatherHeavyRain:
+		return "HEAVY_RAIN"
+	case WeatherStorm:
+		return "STORM"
+	case WeatherLightSnow:
+		return "LIGHT_SNOW"
+	case WeatherHeavySnow:
+		return "HEAVY_SNOW"
+	case WeatherBlizzard:
+		return "BLIZZARD"
+	default:
+		return "CLEAR"
+	}
+}
+
+func WeatherConditionFromString(s string) WeatherCondition {
+	switch s {
+	case "CLOUDY":
+		return WeatherCloudy
+	case "LIGHT_RAIN":
+		return WeatherLightRain
+	case "HEAVY_RAIN", "RAIN":
+		return WeatherHeavyRain
+	case "STORM":
+		return WeatherStorm
+	case "LIGHT_SNOW":
+		return WeatherLightSnow
+	case "HEAVY_SNOW", "SNOW":
+		return WeatherHeavySnow
+	case "BLIZZARD":
+		return WeatherBlizzard
+	default:
+		return WeatherClear
+	}
+}
+
+func (w WeatherCondition) IsSevere() bool {
+	return w >= WeatherHeavyRain
+}
+
+type WeatherAlert struct {
+	TunnelID    string           `json:"tunnel_id"`
+	Condition   WeatherCondition `json:"condition"`
+	Severity    int32            `json:"severity"`
+	Description string           `json:"description"`
+	ExpectedDuration int64       `json:"expected_duration"`
+	Timestamp   time.Time        `json:"timestamp"`
 }

@@ -12,6 +12,7 @@ mqtt:
     traffic: "tunnel/+/traffic"
     light_intensity: "tunnel/+/light_intensity"
     emergency: "tunnel/+/emergency"
+    weather: "tunnel/+/weather"
 
 redis:
   host: "localhost"
@@ -30,6 +31,9 @@ mysql:
   max_idle_conns: 10
 
 dimmer:
+  entrance_segment_id: "S01"
+  weather_brightness_boost: 1.3
+  severe_weather_boost: 1.6
   segments:
     - id: "S01"
       name: "入口段"

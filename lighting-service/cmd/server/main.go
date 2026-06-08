@@ -48,6 +48,9 @@ type Config struct {
 		MaxIdleConns int    `yaml:"max_idle_conns"`
 	} `yaml:"mysql"`
 	Dimmer struct {
+		EntranceSegmentID    string  `yaml:"entrance_segment_id"`
+		WeatherBrightnessBoost float64 `yaml:"weather_brightness_boost"`
+		SevereWeatherBoost   float64 `yaml:"severe_weather_boost"`
 		Segments []struct {
 			ID            string  `yaml:"id"`
 			Name          string  `yaml:"name"`
@@ -132,6 +135,9 @@ func main() {
 		TrafficDensityFactor: config.Dimmer.TrafficDensityFactor,
 		MinBrightness:        config.Dimmer.MinBrightness,
 		MaxBrightness:        config.Dimmer.MaxBrightness,
+		EntranceSegmentID:    config.Dimmer.EntranceSegmentID,
+		WeatherBrightnessBoost: config.Dimmer.WeatherBrightnessBoost,
+		SevereWeatherBoost:   config.Dimmer.SevereWeatherBoost,
 	}
 
 	dimmerService := dimmer.NewDimmerService(dimmerConfig, dataCollector)
@@ -163,6 +169,35 @@ func main() {
 			if store != nil {
 				store.CacheLightingSegments("T001", segments)
 			}
+		}
+	}()
+
+	go func() {
+		for weatherAlert := range mqttClient.WeatherChan() {
+			tunnelID := weatherAlert.TunnelID
+			if tunnelID == "" {
+				tunnelID = "T001"
+			}
+
+			if _, ok := dimmerService.GetSegments(tunnelID); !ok {
+				dimmerService.InitializeSegments(tunnelID)
+			}
+
+			dimmerService.SetWeatherCondition(tunnelID, weatherAlert.Condition)
+
+			segments, err := dimmerService.CalculateBrightness(tunnelID)
+			if err != nil {
+				log.Printf("Calculate brightness after weather alert failed: %v", err)
+				continue
+			}
+
+			if store != nil {
+				if err := store.CacheLightingSegments(tunnelID, segments); err != nil {
+					log.Printf("Cache lighting segments after weather alert failed: %v", err)
+				}
+			}
+
+			log.Printf("Weather alert processed for tunnel %s: %s", tunnelID, weatherAlert.Condition.String())
 		}
 	}()
 
