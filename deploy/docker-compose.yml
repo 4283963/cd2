@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tunnel-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tunnel
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_data:/var/lib/mysql
+    networks:
+      - tunnel-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: tunnel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - tunnel-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    container_name: tunnel-mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqtt_data:/mosquitto/data
+      - mqtt_log:/mosquitto/log
+    networks:
+      - tunnel-network
+
+  lighting-service:
+    build:
+      context: ../lighting-service
+      dockerfile: ../deploy/Dockerfile.lighting
+    container_name: tunnel-lighting-service
+    ports:
+      - "50051:50051"
+      - "8080:8080"
+    environment:
+      - MQTT_BROKER=tcp://mqtt:1883
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    networks:
+      - tunnel-network
+
+  emergency-service:
+    build:
+      context: ../emergency-service
+      dockerfile: ../deploy/Dockerfile.emergency
+    container_name: tunnel-emergency-service
+    ports:
+      - "8081:8081"
+      - "50052:50052"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/tunnel?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - MQTT_BROKER=tcp://mqtt:1883
+      - GRPC_CLIENT_LIGHTING_SERVICE_ADDRESS=lighting-service:50051
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+      lighting-service:
+        condition: service_started
+    networks:
+      - tunnel-network
+
+volumes:
+  mysql_data:
+  redis_data:
+  mqtt_data:
+  mqtt_log:
+
+networks:
+  tunnel-network:
+    driver: bridge

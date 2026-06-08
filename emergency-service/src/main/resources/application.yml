@@ -1,0 +1,73 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: emergency-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/tunnel?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1ms
+          max-idle: 8
+          min-idle: 0
+
+mqtt:
+  broker: tcp://localhost:1883
+  client-id: emergency-service
+  username:
+  password:
+  topics:
+    emergency-alert: "tunnel/+/emergency"
+    escape-light-status: "tunnel/+/escape_light/+"
+  publish-topics:
+    escape-light-control: "tunnel/{tunnelId}/escape_light/{segmentId}"
+    led-mark-control: "tunnel/{tunnelId}/led_mark/{segmentId}"
+
+grpc:
+  client:
+    lighting-service:
+      address: localhost:50051
+      enable-keep-alive: true
+      keep-alive-without-calls: true
+
+emergency:
+  escape-light:
+    blink-interval: 500
+    default-brightness: 100
+  led-mark:
+    emergency-color: "FF0000"
+    normal-color: "00FF00"
+  segments:
+    - id: "S01"
+      name: "入口段"
+    - id: "S02"
+      name: "过渡段1"
+    - id: "S03"
+      name: "过渡段2"
+    - id: "S04"
+      name: "中间段"
+    - id: "S05"
+      name: "出口段"
